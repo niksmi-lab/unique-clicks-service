@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify modules
+        run: go mod verify
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        run: go test -race -count=1 ./...
+
+      - name: Scan Go dependencies
+        uses: golang/govulncheck-action@v1
+        with:
+          go-package: ./...
+
+      - name: Validate Prometheus configuration
+        run: >-
+          docker run --rm
+          -v "$PWD/deployments/prometheus:/etc/prometheus:ro"
+          prom/prometheus:v3.13.2
+          promtool check config /etc/prometheus/prometheus.yml
+
+      - name: Build production image
+        run: docker build --build-arg VERSION="$GITHUB_SHA" -t unique-clicks-service:ci .

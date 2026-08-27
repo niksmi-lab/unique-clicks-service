@@ -1,0 +1,73 @@
+groups:
+  - name: unique-clicks
+    rules:
+      - alert: UniqueClicksServiceDown
+        expr: up{job="unique-clicks"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Unique Clicks API is unavailable
+          description: Prometheus has been unable to scrape the API for more than 2 minutes.
+
+      - alert: UniqueClicksHighHTTPErrorRate
+        expr: sum(rate(unique_clicks_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(unique_clicks_http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: HTTP 5xx ratio is above 5%
+          description: More than 5% of requests have returned a server error for 10 minutes.
+
+      - alert: UniqueClicksHighP95Latency
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(unique_clicks_http_request_duration_seconds_bucket{route!="GET /metrics"}[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: HTTP p95 latency is above one second
+          description: At least one API route has had p95 latency above one second for 10 minutes.
+
+      - alert: UniqueClicksDatabasePoolSaturated
+        expr: unique_clicks_db_pool_acquired_connections / clamp_min(unique_clicks_db_pool_max_connections, 1) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL connection pool is saturated
+          description: More than 90% of the configured pool is acquired.
+
+      - alert: UniqueClicksStorageErrors
+        expr: sum(increase(unique_clicks_storage_operations_total{result="error"}[5m])) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: PostgreSQL operations are failing
+          description: More than five storage errors were observed in five minutes.
+
+      - alert: UniqueClicksIngestionErrors
+        expr: increase(unique_clicks_clicks_total{result="error"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Click ingestion is failing
+          description: More than five click ingestion errors were observed in five minutes.
+
+      - alert: UniqueClicksCleanupFailed
+        expr: increase(unique_clicks_cleanup_runs_total{result="error"}[2h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Retention cleanup failed
+          description: At least one retention cleanup run failed during the last two hours.
+
+      - alert: UniqueClicksCleanupStale
+        expr: time() - unique_clicks_cleanup_last_success_timestamp_seconds > 7200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Retention cleanup has not succeeded recently
+          description: There has been no successful retention cleanup for more than two hours.
