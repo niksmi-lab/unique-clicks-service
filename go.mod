@@ -3,7 +3,7 @@ module github.com/niksmi-lab/unique-clicks-service
 go 1.25.0
 
 require (
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/prometheus/client_golang v1.24.1
 )
 
