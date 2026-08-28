@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/niksmi-lab/unique-clicks-service/actions/workflows/ci.yml/badge.svg)](https://github.com/niksmi-lab/unique-clicks-service/actions/workflows/ci.yml)
 
-Production-style микросервис для учёта уникальных кликов по авторам. Уникальность определяется тройкой **UTC-день + author_id + user_id**: повторный клик того же пользователя по тому же автору в течение дня не увеличивает метрику.
+Сервис учёта уникальных кликов по авторам. Клик считается уникальным в пределах тройки **UTC-день + author_id + user_id**: повторный запрос от того же пользователя для того же автора в течение дня не изменяет счётчик.
 
 ## Быстрый запуск
 
@@ -34,7 +34,7 @@ curl -s -X POST http://localhost:8080/v1/metrics/yesterday \
 - `GET /health/ready` проверяет, что процесс видит PostgreSQL.
 - `GET /metrics` отдаёт Prometheus exposition format.
 
-Старые маршруты `POST /click` и `POST /author-metrics` сохранены как compatibility aliases. Новым клиентам следует использовать версионированные URL.
+Старые маршруты `POST /click` и `POST /author-metrics` оставлены для обратной совместимости. Новым клиентам следует использовать версионированные URL.
 
 Тела запросов должны иметь `Content-Type: application/json`. Неизвестные поля, лишние JSON-объекты, неположительные идентификаторы и более 1000 авторов отклоняются с `400`. Размер тела ограничен 1 MiB.
 
@@ -59,11 +59,11 @@ api/openapi.yaml             машиночитаемый HTTP-контракт
 
 ## Конфигурация
 
-| Переменная | Default | Назначение |
+| Переменная | По умолчанию | Назначение |
 |---|---:|---|
 | `APP_ENV` | `development` | Окружение и уровень логирования |
 | `SERVER_ADDR` | `:8080` | Адрес HTTP-сервера |
-| `DATABASE_URL` | локальный PostgreSQL | DSN; в production задаётся secret-ом |
+| `DATABASE_URL` | локальный PostgreSQL | DSN; в рабочем окружении передаётся через секреты |
 | `REQUEST_TIMEOUT` | `5s` | Лимит бизнес-операции |
 | `SHUTDOWN_TIMEOUT` | `10s` | Время на graceful shutdown |
 | `CLEANUP_INTERVAL` | `1h` | Частота retention job |
@@ -74,7 +74,7 @@ api/openapi.yaml             машиночитаемый HTTP-контракт
 
 ## Мониторинг Prometheus
 
-Сервис использует отдельный registry и экспортирует:
+Сервис использует отдельный реестр Prometheus и экспортирует:
 
 - RED-метрики HTTP: `unique_clicks_http_requests_total`, `unique_clicks_http_request_duration_seconds`, `unique_clicks_http_requests_in_flight`;
 - бизнес-метрики: `unique_clicks_clicks_total{result}` и `unique_clicks_metrics_queries_total{result}`;
@@ -82,7 +82,7 @@ api/openapi.yaml             машиночитаемый HTTP-контракт
 - retention worker: число запусков, ошибки, длительность, удалённые строки и время последнего успеха;
 - стандартные `go_*`, `process_*`, состояние scrape handler и `unique_clicks_build_info`.
 
-Labels ограничены фиксированными наборами `method`, route pattern, HTTP status, operation и result. `user_id` и `author_id` намеренно не экспортируются: идентификаторы создали бы неограниченную cardinality.
+Набор меток ограничен значениями `method`, шаблоном маршрута, HTTP-статусом, операцией и результатом. `user_id` и `author_id` намеренно не экспортируются, чтобы не создавать метрики с неограниченным числом временных рядов.
 
 В [deployments/prometheus/alerts.yml](deployments/prometheus/alerts.yml) определены алерты на:
 
@@ -93,9 +93,9 @@ Labels ограничены фиксированными наборами `metho
 - ошибки storage и click ingestion;
 - ошибку или отсутствие успешного retention cleanup.
 
-Prometheus автоматически собирает `/metrics` каждые 15 секунд. В production конфигурацию scrape и alert rules обычно переносят в общий observability stack, а `/metrics` закрывают от публичного доступа network policy или internal ingress.
+Prometheus автоматически собирает `/metrics` каждые 15 секунд. В рабочем окружении scrape-конфигурацию и правила оповещений обычно переносят в общую систему мониторинга, а `/metrics` закрывают от публичного доступа на уровне сети или внутреннего ingress.
 
-## Что делает реализацию продуктовой
+## Технические решения
 
 - Уникальность гарантирует primary key в PostgreSQL, а `ON CONFLICT DO NOTHING` делает повторную доставку события безопасной.
 - Ошибки записи и чтения доходят до HTTP-слоя; внутренняя ошибка больше не маскируется под `404`.
@@ -105,7 +105,7 @@ Prometheus автоматически собирает `/metrics` каждые 1
 - Фоновый worker привязан к lifecycle приложения и останавливается по `SIGINT/SIGTERM`.
 - Retention удаляет данные старше настраиваемого периода, а не всё старше вчерашнего дня.
 - Graceful shutdown завершает активные HTTP-запросы и закрывает pool.
-- Prometheus даёт RED-, business-, database- и background-job observability с готовыми alert rules.
+- Prometheus собирает HTTP-, бизнес- и системные метрики; основные сбои покрыты правилами оповещений.
 
 Для очень большого потока непосредственная запись в PostgreSQL станет узким местом. Следующий этап масштабирования — очередь событий, партиционирование таблицы по дате и асинхронная агрегация. Для текущего масштаба прямой idempotent insert проще и надёжнее.
 
