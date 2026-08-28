@@ -47,9 +47,10 @@ jobs:
       - name: Validate Prometheus configuration
         run: >-
           docker run --rm
+          --entrypoint promtool
           -v "$PWD/deployments/prometheus:/etc/prometheus:ro"
           prom/prometheus:v3.13.2
-          promtool check config /etc/prometheus/prometheus.yml
+          check config /etc/prometheus/prometheus.yml
 
       - name: Build production image
         run: docker build --build-arg VERSION="$GITHUB_SHA" -t unique-clicks-service:ci .
